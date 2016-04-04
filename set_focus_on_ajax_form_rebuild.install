@@ -1,0 +1,26 @@
+<?php
+
+/**
+ * @file
+ * Set Focus on AJAX Form Rebuild install and uninstall code.
+ */
+
+/**
+ * Implements hook_install().
+ *
+ * Turns on both textfield keyboard focus control and file upload/removal
+ * focus control by default; these can be turned off on the configuration
+ * page.
+ */
+function set_focus_on_ajax_form_rebuild_install() { 
+  variable_set('set_focus_on_ajax_form_rebuild_textfields', TRUE);
+  variable_set('set_focus_on_ajax_form_rebuild_file_uploads', TRUE);
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function set_focus_on_ajax_form_rebuild_uninstall() {
+  variable_del('set_focus_on_ajax_form_rebuild_textfields');
+  variable_del('set_focus_on_ajax_form_rebuild_file_uploads');
+}

@@ -1,0 +1,5 @@
+name = Set Focus on AJAX Form Rebuild
+description = To provide better 508 compliance, sets focus to a useful element after a form is rebuilt following an AJAX call.  
+core = 7.x
+
+configure = admin/config/people/set_focus_on_ajax_form_rebuild

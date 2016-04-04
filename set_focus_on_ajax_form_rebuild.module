@@ -1,0 +1,246 @@
+<?php
+
+/**
+ * @file
+ * A module that creates appropriate messages and sets accessible keyboard focus
+ * on AJAX form rebuilds.
+ *
+ * The Set Focus on AJAX Form Rebuild module creates appropriate messages and 
+ * sets the keyboard focus to an appropriate element after a form is rebuilt 
+ * following an AJAX call.  This functionality specifically targets setting 
+ * focus to newly created textfields and textareas in cases where the text 
+ * fields have unlimited potential values, and setting focus to new file uploads
+ * while providing appropriate informative messages on file removal.
+ * 
+ * The goal of this module is to enhance keyboard accessibility for the visually
+ * impaired in an effort to meet U.S. Government Section 508 compliance 
+ * requirements.  This functionality of this module only affects node- and 
+ * taxonomy term-editing forms; it does not affect forms created through 
+ * Webforms or the Form API.
+ */
+
+/**
+ * Implements hook_menu().
+ *
+ * This sets up the configuration page for setting keyboard focus.
+ */
+function set_focus_on_ajax_form_rebuild_menu() {
+  $items = array();
+  $items['admin/config/people/set_focus_on_ajax_form_rebuild'] = array(
+    'title' => 'Set Focus on AJAX Form Rebuild',
+    'description' => 'Specify how keyboard focus is set when a new textfield is added and/or when a file is uploaded or removed.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('set_focus_on_ajax_form_rebuild_admin_form'),
+    'access arguments' => array('set focus on ajax form rebuild permissions'),
+    'file' => 'set_focus_on_ajax_form_rebuild.admin.inc',
+  );
+  return $items;
+}
+
+/**
+ * Implements hook_help().
+ *
+ * This sets up help text for the configuration page as well as the help page. 
+ */
+function set_focus_on_ajax_form_rebuild_help($path, $arg) {
+  switch ($path) {
+    case 'admin/config/people/set_focus_on_ajax_form_rebuild':
+      $help = '<p>' . t('This form provides site admins options to specify how keyboard focus is set when a new textfield is added and/or when a file is uploaded or removed.  This module allows site admins to control any field that uses a textfield widget (e.g., textfield, decimal and integer field types), a textarea widget (e.g., a long text textfield), or a file upload or image widget.') . '</p>';
+      $help .= '<p>' . t('This functionality only affects node- and taxonomy term-editing forms; it does not affect forms created through Webforms or the Form API.  The module does not set focus for field types of Long text and summary properly, although it does work with Long text.  Also, the module is not optimized for use in Field Collections; some functionality may work, but some may not.  These issues are expected to be addressed in a future release.') . '</p>';
+      $help .= '<p>' . t('Note:  separate functionality handles text fields and file upload fields, which is why separate options are offered for them.') . '</p>';
+      return $help;
+    case "admin/help#set_focus_on_ajax_form_rebuild":
+      $help = '<p>' . t('The Set Focus on AJAX Form Rebuild module creates appropriate messages and sets the keyboard focus to an appropriate element after a form is rebuilt following an AJAX call.  For example, for cases where a new textfield is added for a textfield widget that can have unlimited values, the focus is set to the most recently added field.  For file uploads, the focus is set to the link to the newly added file.  For file removals, an appropriate message is sent to the screen adjacent to the file select button and focus is set to the message.  For file uploads, the link color is set to green, and for file removals, the message text color is set to red; while this does not help the visually impaired, it takes nothing away from them, and it makes the module more useful for sighted users.') . '</p>';
+      $help .= '<p>' . t('By default, Drupal does not set keyboard focus to an element that makes it obvious what the next step should be for users who use screenreaders to navigate the page.  This creates an accessibility problem for the visually impaired.') . '</p>';
+      $help .= '<p>' . t('The goal of this module is to address that problem by enhancing keyboard accessibility in an effort to meet U.S. Government Section 508 compliance requirements.  This functionality only affects node- and taxonomy term-editing forms; it does not affect forms created through Webforms or the Form API.  The module does not set focus for field types of Long text and summary properly, although it does work with Long text.  Also, the module is not optimized for use in Field Collections; some functionality may work, but some may not.  These issues are expected to be addressed in a future release.') . '</p>';
+      return $help;
+  }
+}
+
+/**
+ * Implements hook_permission().
+ */
+function set_focus_on_ajax_form_rebuild_permission() {
+  return array(
+    'set focus on ajax form rebuild permissions' => array(
+        'title' => t('Sets appropriate accessible behavior for setting keyboard focus on AJAX form rebuilds.'),
+      )
+    );
+}
+
+/**
+ * Implements hook_form_alter().
+ * 
+ */
+function set_focus_on_ajax_form_rebuild_form_alter(&$form, &$form_state, $form_id) {
+
+  //This module currently only handles node-editing forms for content types and
+  //taxonomy term editing forms.  It will not work with the webform module or 
+  //forms created through the Form API.  This condition prevents 
+  //set_focus_on_ajax_form_rebuild_form_alter() from interfering with forms that
+  //are not node-editing forms or taxonomy term-editing forms.
+  if(!isset($form['#entity_type']) || ($form['#entity_type'] != 'node' && $form['#entity_type'] != 'taxonomy_term' )) {
+    return;
+  }
+
+  drupal_add_js(drupal_get_path('module', 'set_focus_on_ajax_form_rebuild') . '/set_focus_on_ajax_form_rebuild.js');
+
+  if(isset($form_state['triggering_element'])) {
+    $button = $form_state['triggering_element'];
+
+    //Gets the array for the affected field
+    $element = drupal_array_get_nested_value($form, array_slice($button['#array_parents'], 0, -1));  
+
+
+    if(isset($element['#type'])) {
+      //Gets field type for managed files
+      $field_type = $element['#type']; //type is managed_file
+    } else {
+      $current_element_value = current($element);
+      
+      if(isset($current_element_value['#type'])) {
+        //Gets field type for textfield and textarea if using CKEditor
+        $field_type = $current_element_value['#type'];  //type is text_format
+      }
+      elseif(isset($current_element_value['value']['#type'])) {
+        //Gets field type for textfield and textarea
+        $field_type = $current_element_value['value']['#type']; //type is text or textarea
+      }
+    }
+    
+    if(isset($field_type)) {
+      if($field_type == 'managed_file') {
+        //Makes sure file upload focus control is turned on
+        if(variable_get('set_focus_on_ajax_form_rebuild_file_uploads', FALSE) == TRUE) {
+          //Adds a custom process for file uploads; this will be run after the
+          //default Drupal processes
+          $element['#process'][] = 'set_focus_on_ajax_form_rebuild_file_upload_callback';
+        }
+      } elseif(in_array($field_type, array('textfield', 'textarea', 'text_format'))) {      
+        //Makes sure textfield focus control is turned on
+        if(variable_get('set_focus_on_ajax_form_rebuild_textfields', FALSE) == TRUE) {
+          //Sets custom AJAX callback for the add_more button; the default AJAX
+          //callback will be called from within the custom callback
+          $element['add_more']['#ajax']['callback'] = 'set_focus_on_ajax_form_rebuild_textfield_callback';
+        }
+      }
+    }
+
+    drupal_array_set_nested_value($form, array_slice($button['#array_parents'], 0, -1), $element);  
+  }
+}
+
+/**
+ * Custom Drupal process callback:  This process is added to the other processes
+ * for handling file uploads in $element['#process'].
+ * 
+ * @param array $element
+ *   An array taken from the $form array.
+ * @param array $form_state
+ * @param array $form
+ * 
+ * @return
+ *   The $element array.
+ */
+function set_focus_on_ajax_form_rebuild_file_upload_callback($element, &$form_state, &$form) {
+  
+  if(isset($form_state['triggering_element'])) {
+    $button = $form_state['triggering_element'];
+    
+    //If the user uploaded a file, sets focus to the link to the file
+    if($button['#value'] == 'Upload') {
+      //If the user uploads a file, sets focus to the link to the new file.
+
+      if(isset($element['filename']['#markup'])) {
+        //Gives the link element of the new file an id; this is just a
+        //placeholder id that will be removed and re-used in other places as
+        //needed.  Focus is set to this id in set_focus_on_ajax_form_rebuild.js
+        $element['filename']['#markup'] = str_replace('href', 'id = "set_focus_on_ajax_form_rebuild_upload_placeholder_id" href', $element['filename']['#markup']);
+      }
+    } elseif($button['#value'] == 'Remove') {
+      //If the user removed a file, creates a message noting the removal and
+      //sets focus to the message.  
+
+      //Gets key of removed file from $button (from $form_state).  The key will
+      //help us get the filename that has been removed, if the filename is 
+      //available.
+      $removed_file_key = current(array_slice($button['#array_parents'], -2, 1));
+
+      if(isset($removed_file_key)) {
+        if(isset($_POST[$element['#field_name']][$element['#language']][$removed_file_key]['fid'])) {
+          //Gets the file_id of the removed file from the $_POST array
+          $removed_file_fid = $_POST[$element['#field_name']][$element['#language']][$removed_file_key]['fid'];
+        }
+              
+        if(isset($element['#entity']->{$element['#field_name']}[$element['#language']]) && isset($removed_file_fid)) {
+          //The form fields may be keyed differently in the $form array (of which
+          //$element is a part) than in the $_POST array, so this loop cycles 
+          //through $element to look for a file_id match
+          foreach ($element['#entity']->{$element['#field_name']}[$element['#language']] as $key => $arr) {          
+            //Gets the filename of the removed file.  If the file_id is not in
+            //the $element array, then we will not be able to access the
+            //filename and will have to use a placeholder.  This usually would
+            //occur only if the file was uploaded and then removed before the
+            //form was saved.
+            if($removed_file_fid == $arr['fid']) {
+              $removed_file = $arr['filename'];
+            }
+          }
+        } 
+      }
+      
+      //If we cannot access the filename, use a placeholder.  
+      if(!isset($removed_file)) {
+        if($element['#theme'] == 'image_widget') {
+          $removed_file = t('The selected image');
+        } else {
+          $removed_file = t('The selected file');
+        }
+      }
+      
+      //Creates a new div next to the File Upload title; this is just a
+      //placeholder id that will be removed and re-used in other places as
+      //needed.  Focus is set to the new message in 
+      //set_focus_on_ajax_form_rebuild.js
+      $new_div_message = '<div tabindex="0" id = "set_focus_on_ajax_form_rebuild_remove_placeholder_id" style = "display: inline;"><p>' . $removed_file . ' ' . t('has been removed.') . '</p></div>';
+      
+      if(isset($form[$element['#field_name']][$element['#language']]['#file_upload_title'])) {
+        //Sets message if this is a multiple file upload field
+        $form[$element['#field_name']][$element['#language']]['#file_upload_title'] .= $new_div_message;
+      } else {
+        //Sets message if this is a single file upload field
+        $element['#title'] .= $new_div_message;
+      }
+    }
+  }
+  
+  return $element;
+}
+
+/**
+ * Custom AJAX callback:  Calls Drupal function field_add_more_js() to add new
+ * field, and then sets focus on the most recently added field.
+ *
+ * @return
+ *   Returns a set of AJAX commands.
+ *
+ */
+function set_focus_on_ajax_form_rebuild_textfield_callback($form, $form_state) {
+  $element = field_add_more_js($form, $form_state);
+
+  //Gets the id for the most recently added field.  This gets the correct id for
+  //all textfields and textareas, including CKEditor fields; however, 
+  //ajax_command_invoke() below is not setting the focus to CKEditor fields,
+  //possibly because the JavaScript is altering the id attributes.
+  $most_recently_added_field = $element[$element['#max_delta']]['value']['#id'];
+  
+  //Renders new form elements
+  $commands[] = ajax_command_replace(NULL, render($element));
+  
+  //Sets focus on most recently added field
+  if(isset($most_recently_added_field)) {
+    $commands[] = ajax_command_invoke('#' . $most_recently_added_field, 'focus');
+  }
+  
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
